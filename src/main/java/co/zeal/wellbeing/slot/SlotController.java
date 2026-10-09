@@ -1,79 +1,55 @@
 package co.zeal.wellbeing.slot;
 
-import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.data.redis.core.RedisTemplate;
+import co.zeal.wellbeing.shared.security.AuthenticatedUser;
+import co.zeal.wellbeing.shared.security.CurrentUser;
+import co.zeal.wellbeing.shared.time.DateRange;
+import jakarta.validation.Valid;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
 
-import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
-import java.util.Map;
-import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/wellbeing/franjas")
+@PreAuthorize("hasRole('PSICOLOGO')")
 public class SlotController {
 
-    private final SlotRepository slotRepository;
-    private final RedisTemplate<String, Object> redisTemplate;
+    private final SlotService slotService;
+    private final ZoneId businessZone;
 
-    public SlotController(SlotRepository slotRepository, RedisTemplate<String, Object> redisTemplate) {
-        this.slotRepository = slotRepository;
-        this.redisTemplate = redisTemplate;
+    public SlotController(SlotService slotService, ZoneId businessZone) {
+        this.slotService = slotService;
+        this.businessZone = businessZone;
     }
 
     @GetMapping("/mias")
-    public List<Slot> mySlots(@RequestParam String desde, @RequestParam String hasta, HttpServletRequest req) {
-        String psychologistId = (String) req.getAttribute("userId");
-        return slotRepository.findByPsychologistIdAndStartsAtBetweenOrderByStartsAtAsc(
-                psychologistId, Instant.parse(desde), Instant.parse(hasta));
+    public List<SlotView> mySlots(@CurrentUser AuthenticatedUser user,
+                                  @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,
+                                  @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta) {
+        return slotService.mySlots(user, DateRange.of(desde, hasta, businessZone));
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public Slot create(@RequestBody NewSlotRequest body, HttpServletRequest req) {
-        String role = (String) req.getAttribute("userRole");
-        if (!"PSICOLOGO".equals(role)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Solo los psicólogos pueden crear franjas.");
-        }
-        String psychologistId = (String) req.getAttribute("userId");
-        Slot slot = Slot.builder()
-                .id("slot-" + UUID.randomUUID().toString().substring(0, 8))
-                .psychologistId(psychologistId)
-                .startsAt(Instant.parse(body.startsAt()))
-                .endsAt(Instant.parse(body.endsAt()))
-                .status(SlotStatus.DISPONIBLE)
-                .version(0L)
-                .build();
-        slotRepository.save(slot);
-        redisTemplate.convertAndSend("events.slots", Map.of("type", "CREADA", "slot",
-                Map.of("id", slot.getId(), "psychologistId", slot.getPsychologistId(),
-                        "startsAt", slot.getStartsAt().toString(),
-                        "endsAt", slot.getEndsAt().toString(),
-                        "status", slot.getStatus().name())));
-        return slot;
+    public SlotView open(@CurrentUser AuthenticatedUser user, @Valid @RequestBody NewSlotRequest request) {
+        return slotService.open(user, request);
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@PathVariable String id, HttpServletRequest req) {
-        String psychologistId = (String) req.getAttribute("userId");
-        Slot slot = slotRepository.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
-        if (!slot.getPsychologistId().equals(psychologistId)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
-        }
-        if (slot.getStatus() == SlotStatus.RESERVADA) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "No puedes eliminar una franja reservada.");
-        }
-        slotRepository.delete(slot);
-        redisTemplate.convertAndSend("events.slots", Map.of("type", "ELIMINADA", "slot",
-                Map.of("id", slot.getId(), "psychologistId", slot.getPsychologistId(),
-                        "startsAt", slot.getStartsAt().toString(),
-                        "endsAt", slot.getEndsAt().toString(),
-                        "status", slot.getStatus().name())));
+    public void delete(@CurrentUser AuthenticatedUser user, @PathVariable String id) {
+        slotService.delete(user, id);
     }
-
-    public record NewSlotRequest(String startsAt, String endsAt) {}
 }

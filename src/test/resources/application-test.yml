@@ -1,0 +1,7 @@
+app:
+  demo-data:
+    enabled: false
+spring:
+  datasource:
+    hikari:
+      maximum-pool-size: 30
