@@ -4,11 +4,13 @@ import jakarta.persistence.*;
 import java.time.Instant;
 
 @Entity
-@Table(name = "reservations")
+@Table(name = "reservations", uniqueConstraints =
+        @UniqueConstraint(name = "uk_reservations_active_slot", columnNames = "active_slot_id"))
 public class Reservation {
     @Id
     private String id;
     @Column(nullable = false) private String slotId;
+    @Column(name = "active_slot_id") private String activeSlotId;
     @Column(nullable = false) private String psychologistId;
     @Column(nullable = false) private String employeeId;
     @Column(nullable = false) private String employeeName;
@@ -23,6 +25,7 @@ public class Reservation {
         this.id = id; this.slotId = slotId; this.psychologistId = psychologistId;
         this.employeeId = employeeId; this.employeeName = employeeName;
         this.startsAt = startsAt; this.endsAt = endsAt; this.status = status;
+        this.activeSlotId = status == ReservationStatus.CONFIRMADA ? slotId : null;
     }
     public String getId() { return id; }
     public void setId(String v) { this.id = v; }
@@ -39,7 +42,10 @@ public class Reservation {
     public Instant getEndsAt() { return endsAt; }
     public void setEndsAt(Instant v) { this.endsAt = v; }
     public ReservationStatus getStatus() { return status; }
-    public void setStatus(ReservationStatus v) { this.status = v; }
+    public void setStatus(ReservationStatus v) {
+        this.status = v;
+        this.activeSlotId = v == ReservationStatus.CONFIRMADA ? slotId : null;
+    }
 
     public static Builder builder() { return new Builder(); }
     public static class Builder {

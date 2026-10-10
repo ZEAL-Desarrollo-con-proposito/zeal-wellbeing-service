@@ -24,4 +24,7 @@ public interface SlotRepository extends JpaRepository<Slot, String> {
 
     List<Slot> findByPsychologistIdAndStartsAtBetweenOrderByStartsAtAsc(
             String psychologistId, Instant from, Instant to);
+
+    List<Slot> findByPsychologistIdAndStartsAtGreaterThanEqualAndStartsAtLessThanOrderByStartsAtAsc(
+            String psychologistId, Instant from, Instant until);
 }

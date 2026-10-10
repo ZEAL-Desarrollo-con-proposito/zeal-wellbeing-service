@@ -8,6 +8,8 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
 import java.util.List;
@@ -37,10 +39,18 @@ public class PsychologistController {
 
     @GetMapping("/{id}/franjas")
     public List<Slot> getSlots(@PathVariable String id,
-                               @RequestParam String desde,
-                               @RequestParam String hasta) {
-        return slotRepository.findByPsychologistIdAndStartsAtBetweenOrderByStartsAtAsc(
-                id, Instant.parse(desde), Instant.parse(hasta));
+                               @RequestParam LocalDate desde,
+                               @RequestParam LocalDate hasta) {
+        if (!psychologistRepository.existsById(id)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        }
+        if (hasta.isBefore(desde)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "La fecha final debe ser igual o posterior a la inicial.");
+        }
+        Instant from = desde.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant until = hasta.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+        return slotRepository.findByPsychologistIdAndStartsAtGreaterThanEqualAndStartsAtLessThanOrderByStartsAtAsc(
+                id, from, until);
     }
 
     private PsychologistDto toDto(Psychologist p) {
