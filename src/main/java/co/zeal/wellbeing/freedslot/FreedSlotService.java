@@ -113,6 +113,7 @@ public class FreedSlotService {
         events.publishEvent(SlotChangedEvent.updated(slot));
         events.publishEvent(new FreedSlotTakenEvent(offer.getId(), employee.id(), offer.getRecipientIds()));
         events.publishEvent(notifications.confirmed(reservation, psychologist));
+        events.publishEvent(notifications.bookedForPsychologist(reservation));
         return AppointmentView.of(reservation, psychologist, now);
     }
 

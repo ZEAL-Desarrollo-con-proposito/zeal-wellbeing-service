@@ -89,6 +89,7 @@ public class BookingService {
                 Reservation.confirm(slot, employee.id(), employee.fullName(), now));
         events.publishEvent(SlotChangedEvent.updated(slot));
         events.publishEvent(notifications.confirmed(reservation, psychologist));
+        events.publishEvent(notifications.bookedForPsychologist(reservation));
         return AppointmentView.of(reservation, psychologist, now);
     }
 
@@ -110,6 +111,7 @@ public class BookingService {
                     "Ya no puedes cancelar esta cita: faltan menos de 24 horas para que empiece.");
         }
         reservation.cancel();
+        events.publishEvent(notifications.cancelledForPsychologist(reservation));
         slots.findByIdForUpdate(reservation.getSlotId()).ifPresent(slot -> {
             slot.release();
             events.publishEvent(SlotChangedEvent.updated(slot));

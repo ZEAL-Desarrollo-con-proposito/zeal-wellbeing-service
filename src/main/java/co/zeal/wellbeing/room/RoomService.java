@@ -88,7 +88,7 @@ public class RoomService {
                 properties.opensAt(reservation.getStartsAt()),
                 reservation.getEndsAt(),
                 otherParticipant(reservation, viewer),
-                properties.iceServers().stream().map(RoomView.IceServer::new).toList());
+                properties.browserIceServers());
     }
 
     private RoomView.Participant otherParticipant(Reservation reservation, AuthenticatedUser viewer) {

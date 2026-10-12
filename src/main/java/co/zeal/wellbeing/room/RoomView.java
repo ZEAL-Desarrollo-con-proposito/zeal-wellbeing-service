@@ -1,5 +1,7 @@
 package co.zeal.wellbeing.room;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.time.Instant;
 import java.util.List;
 
@@ -13,6 +15,12 @@ public record RoomView(String reservationId, RoomStatus status, Instant startsAt
     public record Participant(String id, String fullName) {
     }
 
-    public record IceServer(String urls) {
+    /** Sin credenciales (STUN) los campos se omiten: el frontend acepta ausentes, no {@code null}. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record IceServer(String urls, String username, String credential) {
+
+        public IceServer(String urls) {
+            this(urls, null, null);
+        }
     }
 }

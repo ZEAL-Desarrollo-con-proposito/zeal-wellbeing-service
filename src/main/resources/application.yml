@@ -60,6 +60,11 @@ app:
   room:
     opens-before-start: 10m
     ice-servers: ${ROOM_ICE_SERVERS:stun:stun.l.google.com:19302}
+    # Relé TURN opcional (p. ej. coturn): sin él, algunas redes corporativas no logran conectar el video.
+    turn:
+      urls: ${TURN_URLS:}
+      username: ${TURN_USERNAME:}
+      credential: ${TURN_CREDENTIAL:}
   demo-data:
     enabled: ${DEMO_DATA_ENABLED:true}
 
