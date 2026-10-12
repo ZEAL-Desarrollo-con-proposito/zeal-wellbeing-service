@@ -1,55 +1,97 @@
 package co.zeal.wellbeing.slot;
 
-import jakarta.persistence.*;
-import java.time.Instant;
+import co.zeal.wellbeing.shared.id.Ids;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
+import java.time.Instant;
+import java.util.Objects;
+
+/** Franja horaria que un psicólogo abre en su agenda. Solo puede tener una reserva activa. */
 @Entity
 @Table(name = "slots")
 public class Slot {
+
     @Id
     private String id;
-    @Column(nullable = false)
+
+    @Column(name = "psychologist_id", nullable = false)
     private String psychologistId;
-    @Column(nullable = false)
+
+    @Column(name = "starts_at", nullable = false)
     private Instant startsAt;
-    @Column(nullable = false)
+
+    @Column(name = "ends_at", nullable = false)
     private Instant endsAt;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private SlotStatus status;
+
     @Version
-    private Long version;
+    private long version;
 
-    public Slot() {}
-    public Slot(String id, String psychologistId, Instant startsAt, Instant endsAt, SlotStatus status, Long version) {
-        this.id = id; this.psychologistId = psychologistId; this.startsAt = startsAt;
-        this.endsAt = endsAt; this.status = status; this.version = version;
+    protected Slot() {
+        // JPA
     }
-    public String getId() { return id; }
-    public void setId(String id) { this.id = id; }
-    public String getPsychologistId() { return psychologistId; }
-    public void setPsychologistId(String v) { this.psychologistId = v; }
-    public Instant getStartsAt() { return startsAt; }
-    public void setStartsAt(Instant v) { this.startsAt = v; }
-    public Instant getEndsAt() { return endsAt; }
-    public void setEndsAt(Instant v) { this.endsAt = v; }
-    public SlotStatus getStatus() { return status; }
-    public void setStatus(SlotStatus v) { this.status = v; }
-    public Long getVersion() { return version; }
-    public void setVersion(Long v) { this.version = v; }
 
-    public static Builder builder() { return new Builder(); }
-    public static class Builder {
-        private String id, psychologistId;
-        private Instant startsAt, endsAt;
-        private SlotStatus status;
-        private Long version;
-        public Builder id(String v) { this.id = v; return this; }
-        public Builder psychologistId(String v) { this.psychologistId = v; return this; }
-        public Builder startsAt(Instant v) { this.startsAt = v; return this; }
-        public Builder endsAt(Instant v) { this.endsAt = v; return this; }
-        public Builder status(SlotStatus v) { this.status = v; return this; }
-        public Builder version(Long v) { this.version = v; return this; }
-        public Slot build() { return new Slot(id, psychologistId, startsAt, endsAt, status, version); }
+    private Slot(String psychologistId, Instant startsAt, Instant endsAt) {
+        this.id = Ids.next("franja");
+        this.psychologistId = Objects.requireNonNull(psychologistId);
+        this.startsAt = Objects.requireNonNull(startsAt);
+        this.endsAt = Objects.requireNonNull(endsAt);
+        this.status = SlotStatus.DISPONIBLE;
+    }
+
+    public static Slot open(String psychologistId, Instant startsAt, Instant endsAt) {
+        if (!endsAt.isAfter(startsAt)) {
+            throw new IllegalArgumentException("La franja debe terminar después de empezar");
+        }
+        return new Slot(psychologistId, startsAt, endsAt);
+    }
+
+    public boolean isAvailable() {
+        return status == SlotStatus.DISPONIBLE;
+    }
+
+    public boolean hasStartedAt(Instant instant) {
+        return !startsAt.isAfter(instant);
+    }
+
+    /** Solo se invoca con la fila bloqueada y tras comprobar {@link #isAvailable()}. */
+    public void reserve() {
+        if (!isAvailable()) {
+            throw new IllegalStateException("La franja " + id + " ya está reservada");
+        }
+        status = SlotStatus.RESERVADA;
+    }
+
+    public void release() {
+        status = SlotStatus.DISPONIBLE;
+    }
+
+    public String getId() {
+        return id;
+    }
+
+    public String getPsychologistId() {
+        return psychologistId;
+    }
+
+    public Instant getStartsAt() {
+        return startsAt;
+    }
+
+    public Instant getEndsAt() {
+        return endsAt;
+    }
+
+    public SlotStatus getStatus() {
+        return status;
     }
 }

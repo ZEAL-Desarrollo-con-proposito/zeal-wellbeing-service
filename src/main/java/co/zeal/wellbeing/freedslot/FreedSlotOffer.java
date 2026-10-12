@@ -1,74 +1,129 @@
 package co.zeal.wellbeing.freedslot;
 
-import jakarta.persistence.*;
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
+import co.zeal.wellbeing.shared.id.Ids;
+import co.zeal.wellbeing.slot.Slot;
+import jakarta.persistence.CollectionTable;
+import jakarta.persistence.Column;
+import jakarta.persistence.ElementCollection;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Collection;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
+
+/** Cupo liberado por una cancelación y ofrecido, por tiempo limitado, a varias personas (HU-08). */
 @Entity
 @Table(name = "freed_slot_offers")
 public class FreedSlotOffer {
+
     @Id
     private String id;
+
+    @Column(name = "slot_id", nullable = false)
     private String slotId;
+
+    @Column(name = "psychologist_id", nullable = false)
     private String psychologistId;
-    private String psychologistFullName;
-    private String psychologistTitle;
+
+    @Column(name = "starts_at", nullable = false)
     private Instant startsAt;
+
+    @Column(name = "ends_at", nullable = false)
     private Instant endsAt;
+
+    @Column(name = "expires_at", nullable = false)
     private Instant expiresAt;
+
     @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
     private FreedSlotStatus status;
-    @ElementCollection(fetch = FetchType.EAGER)
-    @CollectionTable(name = "freed_slot_candidates", joinColumns = @JoinColumn(name = "offer_id"))
-    @Column(name = "user_id")
-    private List<String> candidateIds = new ArrayList<>();
 
-    public FreedSlotOffer() {}
-    public String getId() { return id; }
-    public void setId(String v) { this.id = v; }
-    public String getSlotId() { return slotId; }
-    public void setSlotId(String v) { this.slotId = v; }
-    public String getPsychologistId() { return psychologistId; }
-    public void setPsychologistId(String v) { this.psychologistId = v; }
-    public String getPsychologistFullName() { return psychologistFullName; }
-    public void setPsychologistFullName(String v) { this.psychologistFullName = v; }
-    public String getPsychologistTitle() { return psychologistTitle; }
-    public void setPsychologistTitle(String v) { this.psychologistTitle = v; }
-    public Instant getStartsAt() { return startsAt; }
-    public void setStartsAt(Instant v) { this.startsAt = v; }
-    public Instant getEndsAt() { return endsAt; }
-    public void setEndsAt(Instant v) { this.endsAt = v; }
-    public Instant getExpiresAt() { return expiresAt; }
-    public void setExpiresAt(Instant v) { this.expiresAt = v; }
-    public FreedSlotStatus getStatus() { return status; }
-    public void setStatus(FreedSlotStatus v) { this.status = v; }
-    public List<String> getCandidateIds() { return candidateIds; }
-    public void setCandidateIds(List<String> v) { this.candidateIds = v; }
+    @Column(name = "taken_by")
+    private String takenBy;
 
-    public static Builder builder() { return new Builder(); }
-    public static class Builder {
-        private String id, slotId, psychologistId, psychologistFullName, psychologistTitle;
-        private Instant startsAt, endsAt, expiresAt;
-        private FreedSlotStatus status;
-        private List<String> candidateIds = new ArrayList<>();
-        public Builder id(String v) { this.id = v; return this; }
-        public Builder slotId(String v) { this.slotId = v; return this; }
-        public Builder psychologistId(String v) { this.psychologistId = v; return this; }
-        public Builder psychologistFullName(String v) { this.psychologistFullName = v; return this; }
-        public Builder psychologistTitle(String v) { this.psychologistTitle = v; return this; }
-        public Builder startsAt(Instant v) { this.startsAt = v; return this; }
-        public Builder endsAt(Instant v) { this.endsAt = v; return this; }
-        public Builder expiresAt(Instant v) { this.expiresAt = v; return this; }
-        public Builder status(FreedSlotStatus v) { this.status = v; return this; }
-        public Builder candidateIds(List<String> v) { this.candidateIds = v; return this; }
-        public FreedSlotOffer build() {
-            FreedSlotOffer o = new FreedSlotOffer();
-            o.id = id; o.slotId = slotId; o.psychologistId = psychologistId;
-            o.psychologistFullName = psychologistFullName; o.psychologistTitle = psychologistTitle;
-            o.startsAt = startsAt; o.endsAt = endsAt; o.expiresAt = expiresAt;
-            o.status = status; o.candidateIds = candidateIds;
-            return o;
+    @Column(name = "created_at", nullable = false)
+    private Instant createdAt;
+
+    @ElementCollection
+    @CollectionTable(name = "freed_slot_offer_recipients", joinColumns = @JoinColumn(name = "offer_id"))
+    @Column(name = "user_id", nullable = false)
+    private Set<String> recipientIds = new LinkedHashSet<>();
+
+    @Version
+    private long version;
+
+    protected FreedSlotOffer() {
+        // JPA
+    }
+
+    public static FreedSlotOffer open(Slot slot, Collection<String> recipientIds, Instant now, Duration window) {
+        if (recipientIds.isEmpty()) {
+            throw new IllegalArgumentException("Un cupo liberado necesita al menos un destinatario");
         }
+        FreedSlotOffer offer = new FreedSlotOffer();
+        offer.id = Ids.next("cupo");
+        offer.slotId = slot.getId();
+        offer.psychologistId = slot.getPsychologistId();
+        offer.startsAt = slot.getStartsAt();
+        offer.endsAt = slot.getEndsAt();
+        offer.expiresAt = now.plus(window);
+        offer.status = FreedSlotStatus.ABIERTA;
+        offer.createdAt = now;
+        offer.recipientIds.addAll(recipientIds);
+        return offer;
+    }
+
+    public boolean isOfferedTo(String userId) {
+        return recipientIds.contains(userId);
+    }
+
+    public boolean isTaken() {
+        return status == FreedSlotStatus.TOMADA;
+    }
+
+    public boolean isExpiredAt(Instant now) {
+        return !expiresAt.isAfter(now);
+    }
+
+    public void markTakenBy(String userId) {
+        status = FreedSlotStatus.TOMADA;
+        takenBy = userId;
+    }
+
+    public String getId() {
+        return id;
+    }
+
+    public String getSlotId() {
+        return slotId;
+    }
+
+    public String getPsychologistId() {
+        return psychologistId;
+    }
+
+    public Instant getStartsAt() {
+        return startsAt;
+    }
+
+    public Instant getEndsAt() {
+        return endsAt;
+    }
+
+    public Instant getExpiresAt() {
+        return expiresAt;
+    }
+
+    public List<String> getRecipientIds() {
+        return List.copyOf(recipientIds);
     }
 }

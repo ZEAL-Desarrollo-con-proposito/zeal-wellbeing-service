@@ -1,61 +1,144 @@
 package co.zeal.wellbeing.reservation;
 
-import jakarta.persistence.*;
+import co.zeal.wellbeing.shared.id.Ids;
+import co.zeal.wellbeing.slot.Slot;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import jakarta.persistence.Version;
+
+import java.time.Duration;
 import java.time.Instant;
 
+/** Cita entre un empleado y un psicólogo sobre una franja. */
 @Entity
 @Table(name = "reservations")
 public class Reservation {
+
     @Id
     private String id;
-    @Column(nullable = false) private String slotId;
-    @Column(nullable = false) private String psychologistId;
-    @Column(nullable = false) private String employeeId;
-    @Column(nullable = false) private String employeeName;
-    @Column(nullable = false) private Instant startsAt;
-    @Column(nullable = false) private Instant endsAt;
+
+    @Column(name = "slot_id", nullable = false)
+    private String slotId;
+
+    @Column(name = "psychologist_id", nullable = false)
+    private String psychologistId;
+
+    @Column(name = "employee_id", nullable = false)
+    private String employeeId;
+
+    @Column(name = "employee_name", nullable = false)
+    private String employeeName;
+
+    @Column(name = "starts_at", nullable = false)
+    private Instant startsAt;
+
+    @Column(name = "ends_at", nullable = false)
+    private Instant endsAt;
+
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false) private ReservationStatus status;
+    @Column(nullable = false)
+    private ReservationStatus status;
 
-    public Reservation() {}
-    public Reservation(String id, String slotId, String psychologistId, String employeeId,
-                       String employeeName, Instant startsAt, Instant endsAt, ReservationStatus status) {
-        this.id = id; this.slotId = slotId; this.psychologistId = psychologistId;
-        this.employeeId = employeeId; this.employeeName = employeeName;
-        this.startsAt = startsAt; this.endsAt = endsAt; this.status = status;
+    @Column(name = "room_activated_at")
+    private Instant roomActivatedAt;
+
+    @Column(name = "created_at", nullable = false)
+    private Instant createdAt;
+
+    @Version
+    private long version;
+
+    protected Reservation() {
+        // JPA
     }
-    public String getId() { return id; }
-    public void setId(String v) { this.id = v; }
-    public String getSlotId() { return slotId; }
-    public void setSlotId(String v) { this.slotId = v; }
-    public String getPsychologistId() { return psychologistId; }
-    public void setPsychologistId(String v) { this.psychologistId = v; }
-    public String getEmployeeId() { return employeeId; }
-    public void setEmployeeId(String v) { this.employeeId = v; }
-    public String getEmployeeName() { return employeeName; }
-    public void setEmployeeName(String v) { this.employeeName = v; }
-    public Instant getStartsAt() { return startsAt; }
-    public void setStartsAt(Instant v) { this.startsAt = v; }
-    public Instant getEndsAt() { return endsAt; }
-    public void setEndsAt(Instant v) { this.endsAt = v; }
-    public ReservationStatus getStatus() { return status; }
-    public void setStatus(ReservationStatus v) { this.status = v; }
 
-    public static Builder builder() { return new Builder(); }
-    public static class Builder {
-        private String id, slotId, psychologistId, employeeId, employeeName;
-        private Instant startsAt, endsAt;
-        private ReservationStatus status;
-        public Builder id(String v) { this.id = v; return this; }
-        public Builder slotId(String v) { this.slotId = v; return this; }
-        public Builder psychologistId(String v) { this.psychologistId = v; return this; }
-        public Builder employeeId(String v) { this.employeeId = v; return this; }
-        public Builder employeeName(String v) { this.employeeName = v; return this; }
-        public Builder startsAt(Instant v) { this.startsAt = v; return this; }
-        public Builder endsAt(Instant v) { this.endsAt = v; return this; }
-        public Builder status(ReservationStatus v) { this.status = v; return this; }
-        public Reservation build() {
-            return new Reservation(id, slotId, psychologistId, employeeId, employeeName, startsAt, endsAt, status);
+    /** Reserva la franja (que debe estar bloqueada y disponible) para el empleado. */
+    public static Reservation confirm(Slot slot, String employeeId, String employeeName, Instant now) {
+        slot.reserve();
+        Reservation reservation = new Reservation();
+        reservation.id = Ids.next("reserva");
+        reservation.slotId = slot.getId();
+        reservation.psychologistId = slot.getPsychologistId();
+        reservation.employeeId = employeeId;
+        reservation.employeeName = employeeName;
+        reservation.startsAt = slot.getStartsAt();
+        reservation.endsAt = slot.getEndsAt();
+        reservation.status = ReservationStatus.CONFIRMADA;
+        reservation.createdAt = now;
+        return reservation;
+    }
+
+    public boolean isConfirmed() {
+        return status == ReservationStatus.CONFIRMADA;
+    }
+
+    public boolean isCancelled() {
+        return status == ReservationStatus.CANCELADA;
+    }
+
+    /** Una cita confirmada que ya terminó se presenta como finalizada. */
+    public ReservationStatus statusAt(Instant now) {
+        return isConfirmed() && !endsAt.isAfter(now) ? ReservationStatus.FINALIZADA : status;
+    }
+
+    public boolean canBeCancelledAt(Instant now, Duration minimumNotice) {
+        return !Duration.between(now, startsAt).minus(minimumNotice).isNegative();
+    }
+
+    public void cancel() {
+        status = ReservationStatus.CANCELADA;
+    }
+
+    public boolean isRoomActive() {
+        return roomActivatedAt != null;
+    }
+
+    /** Idempotente: activar dos veces conserva la primera hora de activación. */
+    public boolean activateRoom(Instant now) {
+        if (roomActivatedAt != null) {
+            return false;
         }
+        roomActivatedAt = now;
+        return true;
+    }
+
+    public boolean involves(String userId) {
+        return employeeId.equals(userId) || psychologistId.equals(userId);
+    }
+
+    public String getId() {
+        return id;
+    }
+
+    public String getSlotId() {
+        return slotId;
+    }
+
+    public String getPsychologistId() {
+        return psychologistId;
+    }
+
+    public String getEmployeeId() {
+        return employeeId;
+    }
+
+    public String getEmployeeName() {
+        return employeeName;
+    }
+
+    public Instant getStartsAt() {
+        return startsAt;
+    }
+
+    public Instant getEndsAt() {
+        return endsAt;
+    }
+
+    public ReservationStatus getStatus() {
+        return status;
     }
 }
