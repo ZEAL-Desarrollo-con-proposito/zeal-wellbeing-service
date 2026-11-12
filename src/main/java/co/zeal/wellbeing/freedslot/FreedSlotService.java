@@ -87,8 +87,7 @@ public class FreedSlotService {
     @Transactional
     public AppointmentView claim(AuthenticatedUser employee, String offerId) {
         Instant now = Instant.now(clock);
-        FreedSlotOffer offer = offers.findByIdForUpdate(offerId)
-                .filter(candidate -> candidate.isOfferedTo(employee.id()))
+        FreedSlotOffer offer = offers.findOfferedToForUpdate(offerId, employee.id())
                 .orElseThrow(() -> new ResourceNotFoundException(UNAVAILABLE));
         if (offer.isTaken()) {
             throw new BusinessConflictException(TAKEN);

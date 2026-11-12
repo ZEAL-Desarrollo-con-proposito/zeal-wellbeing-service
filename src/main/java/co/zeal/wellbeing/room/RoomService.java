@@ -1,6 +1,7 @@
 package co.zeal.wellbeing.room;
 
 import co.zeal.wellbeing.psychologist.Psychologist;
+import co.zeal.wellbeing.shared.video.LiveKitTokenIssuer;
 import co.zeal.wellbeing.psychologist.PsychologistRepository;
 import co.zeal.wellbeing.reservation.Reservation;
 import co.zeal.wellbeing.reservation.ReservationRepository;
@@ -31,16 +32,18 @@ public class RoomService {
     private final ReservationRepository reservations;
     private final PsychologistRepository psychologists;
     private final RoomProperties properties;
+    private final LiveKitTokenIssuer liveKit;
     private final ApplicationEventPublisher events;
     private final Clock clock;
     private final ZoneId zone;
 
     public RoomService(ReservationRepository reservations, PsychologistRepository psychologists,
-                       RoomProperties properties, ApplicationEventPublisher events, Clock clock,
-                       ZoneId businessZone) {
+                       RoomProperties properties, LiveKitTokenIssuer liveKit, ApplicationEventPublisher events,
+                       Clock clock, ZoneId businessZone) {
         this.reservations = reservations;
         this.psychologists = psychologists;
         this.properties = properties;
+        this.liveKit = liveKit;
         this.events = events;
         this.clock = clock;
         this.zone = businessZone;
@@ -48,18 +51,39 @@ public class RoomService {
 
     @Transactional(readOnly = true)
     public RoomView room(AuthenticatedUser user, String reservationId) {
-        Reservation reservation = reservations.findById(reservationId)
-                .filter(candidate -> candidate.involves(user.id()))
+        return toView(participantReservation(user, reservationId), user, Instant.now(clock));
+    }
+
+    /**
+     * DT-7: solo la entrada a LiveKit. 404 en cualquier caso en que no se emite permiso (no participa,
+     * la sala no está activa o está fuera de la ventana de ingreso), sin distinguir el motivo.
+     */
+    @Transactional(readOnly = true)
+    public RoomView.Connection connection(AuthenticatedUser user, String reservationId) {
+        Reservation reservation = participantReservation(user, reservationId);
+        Instant now = Instant.now(clock);
+        RoomView.Connection connection = connectionFor(reservation, user, statusOf(reservation, now), now);
+        if (connection == null) {
+            throw new ResourceNotFoundException(NOT_FOUND);
+        }
+        return connection;
+    }
+
+    /** Nombre determinístico de la sala de LiveKit de una reserva. */
+    public static String liveKitRoomName(String reservationId) {
+        return "cita-" + reservationId;
+    }
+
+    private Reservation participantReservation(AuthenticatedUser user, String reservationId) {
+        return reservations.findForParticipant(reservationId, user.id())
                 .orElseThrow(() -> new ResourceNotFoundException(NOT_FOUND));
-        return toView(reservation, user, Instant.now(clock));
     }
 
     /** Solo el psicólogo de la sesión la activa, y solo dentro de la ventana de ingreso. */
     @Transactional
     public RoomView activate(AuthenticatedUser psychologist, String reservationId) {
         Instant now = Instant.now(clock);
-        Reservation reservation = reservations.findByIdForUpdate(reservationId)
-                .filter(candidate -> candidate.getPsychologistId().equals(psychologist.id()))
+        Reservation reservation = reservations.findOfPsychologistForUpdate(reservationId, psychologist.id())
                 .orElseThrow(() -> new ResourceNotFoundException(NOT_FOUND));
         RoomStatus status = statusOf(reservation, now);
         if (status == RoomStatus.CANCELADA) {
@@ -80,15 +104,35 @@ public class RoomService {
     }
 
     private RoomView toView(Reservation reservation, AuthenticatedUser viewer, Instant now) {
+        RoomStatus status = statusOf(reservation, now);
         return new RoomView(
                 reservation.getId(),
-                statusOf(reservation, now),
+                status,
                 reservation.getStartsAt(),
                 reservation.getEndsAt(),
                 properties.opensAt(reservation.getStartsAt()),
                 reservation.getEndsAt(),
                 otherParticipant(reservation, viewer),
-                properties.browserIceServers());
+                properties.browserIceServers(viewer.id(), now),
+                connectionFor(reservation, viewer, status, now));
+    }
+
+    /**
+     * Permiso de LiveKit para uno de los dos participantes, solo con la sala activada por el
+     * psicólogo y dentro de la ventana de ingreso; vence cuando termina la sesión.
+     */
+    private RoomView.Connection connectionFor(Reservation reservation, AuthenticatedUser viewer, RoomStatus status,
+                                              Instant now) {
+        boolean insideWindow = !now.isBefore(properties.opensAt(reservation.getStartsAt()))
+                && now.isBefore(reservation.getEndsAt());
+        if (status != RoomStatus.ACTIVA || !insideWindow || !reservation.involves(viewer.id())) {
+            return null;
+        }
+        boolean psychologist = viewer.id().equals(reservation.getPsychologistId());
+        String metadata = "{\"role\":\"" + (psychologist ? "PSICOLOGO" : "EMPLEADO") + "\"}";
+        var grant = new LiveKitTokenIssuer.RoomGrant(liveKitRoomName(reservation.getId()), viewer.id(),
+                viewer.fullName(), metadata, psychologist);
+        return new RoomView.Connection(liveKit.publicUrl(), liveKit.issue(grant, now, reservation.getEndsAt()));
     }
 
     private RoomView.Participant otherParticipant(Reservation reservation, AuthenticatedUser viewer) {

@@ -17,9 +17,15 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
     @Query("SELECT r FROM Reservation r WHERE r.id = :id AND r.employeeId = :employeeId")
     Optional<Reservation> findOwnedForUpdate(@Param("id") String id, @Param("employeeId") String employeeId);
 
+    /** R2-8: la cita solo si quien pregunta es uno de sus dos participantes (filtro en la consulta). */
+    @Query("SELECT r FROM Reservation r WHERE r.id = :id AND (r.employeeId = :userId OR r.psychologistId = :userId)")
+    Optional<Reservation> findForParticipant(@Param("id") String id, @Param("userId") String userId);
+
+    /** R2-8: la cita de este psicólogo, bloqueada (activar la sala). */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT r FROM Reservation r WHERE r.id = :id")
-    Optional<Reservation> findByIdForUpdate(@Param("id") String id);
+    @Query("SELECT r FROM Reservation r WHERE r.id = :id AND r.psychologistId = :psychologistId")
+    Optional<Reservation> findOfPsychologistForUpdate(@Param("id") String id,
+                                                      @Param("psychologistId") String psychologistId);
 
     List<Reservation> findByEmployeeIdOrderByStartsAtAsc(String employeeId);
 

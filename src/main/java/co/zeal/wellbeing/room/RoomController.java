@@ -24,6 +24,12 @@ public class RoomController {
         return roomService.room(user, reservationId);
     }
 
+    /** DT-7: permiso de entrada a la sala de LiveKit de la cita; 404 si no corresponde emitirlo. */
+    @GetMapping("/conexion")
+    public RoomView.Connection connection(@CurrentUser AuthenticatedUser user, @PathVariable String reservationId) {
+        return roomService.connection(user, reservationId);
+    }
+
     @PostMapping("/activar")
     @PreAuthorize("hasRole('PSICOLOGO')")
     public RoomView activate(@CurrentUser AuthenticatedUser user, @PathVariable String reservationId) {

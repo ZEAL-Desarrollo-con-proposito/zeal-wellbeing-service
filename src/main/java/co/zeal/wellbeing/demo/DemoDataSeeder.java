@@ -7,6 +7,7 @@ import co.zeal.wellbeing.slot.SlotRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
+import co.zeal.wellbeing.shared.cluster.ClusterLock;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -59,19 +60,22 @@ public class DemoDataSeeder implements ApplicationRunner {
     private final SlotRepository slots;
     private final ReservationRepository reservations;
     private final Clock clock;
+    private final ClusterLock clusterLock;
     private final ZoneId zone;
 
-    public DemoDataSeeder(SlotRepository slots, ReservationRepository reservations, Clock clock,
+    public DemoDataSeeder(SlotRepository slots, ReservationRepository reservations, Clock clock, ClusterLock clusterLock,
                           ZoneId businessZone) {
         this.slots = slots;
         this.reservations = reservations;
         this.clock = clock;
+        this.clusterLock = clusterLock;
         this.zone = businessZone;
     }
 
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
+        clusterLock.acquireForTransaction("demo-data:wellbeing"); // Réplicas que arrancan a la vez: siembra una.
         if (slots.count() > 0) {
             log.info("[demo] Ya existen franjas; no se siembran datos de demostración.");
             return;

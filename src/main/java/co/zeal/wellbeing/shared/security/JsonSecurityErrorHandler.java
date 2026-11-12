@@ -1,5 +1,6 @@
 package co.zeal.wellbeing.shared.security;
 
+import co.zeal.wellbeing.shared.audit.DeniedAccessAudit;
 import co.zeal.wellbeing.shared.error.ApiErrorFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
@@ -14,19 +15,24 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 
-/** Responde 401 y 403 con el mismo cuerpo JSON que el resto de errores de la API. */
+/**
+ * Responde 401 con el mismo cuerpo JSON que el resto de errores de la API. Un acceso denegado por rol
+ * responde 404 (SEG-3: no revela que el recurso existe) y queda en la auditoría.
+ */
 @Component
 public class JsonSecurityErrorHandler implements AuthenticationEntryPoint, AccessDeniedHandler {
 
     static final String UNAUTHORIZED_MESSAGE = "Tu sesión no es válida. Vuelve a iniciar sesión.";
-    static final String FORBIDDEN_MESSAGE = "No tienes permiso para esta operación.";
+    static final String NOT_FOUND_MESSAGE = "El recurso solicitado no existe.";
 
     private final ApiErrorFactory errors;
     private final ObjectMapper objectMapper;
+    private final DeniedAccessAudit deniedAccess;
 
-    public JsonSecurityErrorHandler(ApiErrorFactory errors, ObjectMapper objectMapper) {
+    public JsonSecurityErrorHandler(ApiErrorFactory errors, ObjectMapper objectMapper, DeniedAccessAudit deniedAccess) {
         this.errors = errors;
         this.objectMapper = objectMapper;
+        this.deniedAccess = deniedAccess;
     }
 
     @Override
@@ -38,7 +44,8 @@ public class JsonSecurityErrorHandler implements AuthenticationEntryPoint, Acces
     @Override
     public void handle(HttpServletRequest request, HttpServletResponse response,
                        AccessDeniedException accessDeniedException) throws IOException {
-        write(response, request, HttpStatus.FORBIDDEN, FORBIDDEN_MESSAGE);
+        deniedAccess.record(request, "rol sin acceso");
+        write(response, request, HttpStatus.NOT_FOUND, NOT_FOUND_MESSAGE);
     }
 
     private void write(HttpServletResponse response, HttpServletRequest request, HttpStatus status, String message)

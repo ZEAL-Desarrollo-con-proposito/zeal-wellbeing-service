@@ -1,43 +1,36 @@
 package co.zeal.wellbeing.security;
 
 import co.zeal.wellbeing.support.IntegrationTest;
+import co.zeal.wellbeing.support.Sessions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.MvcResult;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/** HU-01 y HU-11 de punta a punta: login real, token real y aislamiento del Wellbeing Domain. */
+/** HU-11 y SEG-3 de punta a punta con tokens reales: aislamiento del Wellbeing Domain y 404 ante lo ajeno. */
 @AutoConfigureMockMvc
 class WellbeingApiSecurityIT extends IntegrationTest {
 
     @Autowired
     MockMvc mvc;
+    @Autowired
+    Sessions sessions;
+    @Autowired
+    JdbcTemplate jdbc;
 
     @Test
-    void loginReturnsTheSessionContract() throws Exception {
-        mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\" David.Cajamarca@nexura.co \",\"password\":\"Zeal2026*\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.tokenType", is("Bearer")))
-                .andExpect(jsonPath("$.user.id", is("usr-empleado-001")))
-                .andExpect(jsonPath("$.user.role", is("EMPLEADO")))
-                .andExpect(jsonPath("$.user.organization", is("Nexura S.A.S.")));
-    }
-
-    @Test
-    void wrongPasswordIsRejectedWithAReadableMessage() throws Exception {
-        mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"david.cajamarca@nexura.co\",\"password\":\"otra\"}"))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.message", is("Correo o contraseña incorrectos")));
+    void passwordLoginNoLongerExists() throws Exception {
+        mvc.perform(post("/api/auth/login").contentType("application/json")
+                        .content("{\"email\":\"david.cajamarca@nexura.co\",\"password\":\"Zeal2026*\"}"))
+                .andExpect(status().is4xxClientError());
     }
 
     @Test
@@ -46,41 +39,38 @@ class WellbeingApiSecurityIT extends IntegrationTest {
                 .andExpect(jsonPath("$.status", is(401)));
     }
 
+    /** HU-11 + SEG-3: el administrador recibe 404 (ya no 403) y cada intento queda auditado. */
     @Test
-    void adminNeverReachesTheWellbeingDomain() throws Exception {
-        String admin = tokenFor("talento.humano@nexura.co");
+    void adminNeverReachesTheWellbeingDomainAndGets404() throws Exception {
+        String admin = sessions.bearer("talento.humano@nexura.co");
+        Integer before = jdbc.queryForObject(
+                "select count(*) from security_audit where event_type = 'ACCESO_DENEGADO' and user_id = 'usr-admin-001'",
+                Integer.class);
         for (String path : new String[]{"/api/wellbeing/psicologos", "/api/wellbeing/reservas/mias",
                 "/api/wellbeing/reservas/x/sala", "/api/chats/a:b/mensajes"}) {
-            mvc.perform(get(path).header("Authorization", "Bearer " + admin))
-                    .andExpect(status().isForbidden())
-                    .andExpect(jsonPath("$.message", is("No tienes permiso para esta operación.")));
+            mvc.perform(get(path).header("Authorization", admin))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.message", is("El recurso solicitado no existe.")));
         }
+        Integer after = jdbc.queryForObject(
+                "select count(*) from security_audit where event_type = 'ACCESO_DENEGADO' and user_id = 'usr-admin-001'",
+                Integer.class);
+        assertThat(after - before).isEqualTo(4);
     }
 
     @Test
     void employeesCannotUsePsychologistEndpoints() throws Exception {
-        String employee = tokenFor("david.cajamarca@nexura.co");
         mvc.perform(get("/api/wellbeing/franjas/mias?desde=2026-01-01&hasta=2026-01-02")
-                        .header("Authorization", "Bearer " + employee))
-                .andExpect(status().isForbidden());
+                        .header("Authorization", sessions.bearer("david.cajamarca@nexura.co")))
+                .andExpect(status().isNotFound());
     }
 
     @Test
     void psychologistDirectoryMatchesTheFrontendContract() throws Exception {
-        String employee = tokenFor("david.cajamarca@nexura.co");
-        mvc.perform(get("/api/wellbeing/psicologos").header("Authorization", "Bearer " + employee))
+        mvc.perform(get("/api/wellbeing/psicologos").header("Authorization", sessions.bearer("david.cajamarca@nexura.co")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].id").isString())
                 .andExpect(jsonPath("$[0].title").isString())
                 .andExpect(jsonPath("$[0].focusAreas").isArray());
-    }
-
-    private String tokenFor(String email) throws Exception {
-        MvcResult result = mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"" + email + "\",\"password\":\"Zeal2026*\"}"))
-                .andExpect(status().isOk())
-                .andReturn();
-        String body = result.getResponse().getContentAsString();
-        return body.replaceAll(".*\"accessToken\":\"([^\"]+)\".*", "$1");
     }
 }

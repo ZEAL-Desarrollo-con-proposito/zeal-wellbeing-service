@@ -1,18 +1,16 @@
 package co.zeal.wellbeing.organization;
 
 import co.zeal.wellbeing.support.IntegrationTest;
-import com.jayway.jsonpath.JsonPath;
+import co.zeal.wellbeing.support.Sessions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -22,6 +20,8 @@ class OrganizationApiIT extends IntegrationTest {
 
     @Autowired
     MockMvc mvc;
+    @Autowired
+    Sessions sessions;
 
     @Test
     void eachCompanySeesOnlyItsOwnEmployeesInAlphabeticalOrder() throws Exception {
@@ -40,24 +40,20 @@ class OrganizationApiIT extends IntegrationTest {
     }
 
     @Test
-    void onlyTheCompanyAdministratorCanListEmployees() throws Exception {
+    void onlyTheCompanyAdministratorCanListEmployeesOthersGet404() throws Exception {
         mvc.perform(get("/api/organizacion/empleados").header("Authorization", bearer("andrea.gomez@orbitalabs.co")))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
         mvc.perform(get("/api/organizacion/empleados").header("Authorization", bearer("laura.martinez@zeal.co")))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
     }
 
     @Test
     void newCompanyAdministratorStillCannotReachTheWellbeingDomain() throws Exception {
         mvc.perform(get("/api/wellbeing/psicologos").header("Authorization", bearer("gestion.humana@orbitalabs.co")))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNotFound());
     }
 
-    private String bearer(String email) throws Exception {
-        String body = mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"" + email + "\",\"password\":\"Zeal2026*\"}"))
-                .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
-        return "Bearer " + JsonPath.read(body, "$.accessToken");
+    private String bearer(String email) {
+        return sessions.bearer(email);
     }
 }

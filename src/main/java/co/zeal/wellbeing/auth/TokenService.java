@@ -10,7 +10,9 @@ import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.UUID;
 
 /** Emite el JWT de sesión que validan los tres microservicios. */
 @Service
@@ -26,23 +28,32 @@ public class TokenService {
         this.clock = clock;
     }
 
-    public IssuedToken issue(UserAccount account) {
+    /** Access token de una sesión ({@code sid}); su {@code jti} permite revocarlo solo (R2-13). */
+    public IssuedToken issue(UserAccount account, String sessionId) {
         Instant issuedAt = Instant.now(clock);
+        String jti = UUID.randomUUID().toString();
+        Instant expiresAt = issuedAt.plus(properties.timeToLive());
         JwtClaimsSet claims = JwtClaimsSet.builder()
+                .id(jti)
                 .issuer(properties.issuer())
                 .subject(account.getId())
                 .issuedAt(issuedAt)
-                .expiresAt(issuedAt.plus(properties.timeToLive()))
+                .expiresAt(expiresAt)
                 .claim(ZealClaims.ROLE, account.getRole().name())
                 .claim(ZealClaims.FULL_NAME, account.getFullName())
                 .claim(ZealClaims.EMAIL, account.getEmail())
                 .claim(ZealClaims.ORGANIZATION, account.getOrganization())
+                .claim(ZealClaims.SESSION, sessionId)
                 .build();
         JwsHeader header = JwsHeader.with(MacAlgorithm.HS256).build();
         String value = encoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();
-        return new IssuedToken(value, properties.timeToLive().toSeconds());
+        return new IssuedToken(value, properties.timeToLive().toSeconds(), jti, expiresAt);
     }
 
-    public record IssuedToken(String value, long expiresInSeconds) {
+    public Duration timeToLive() {
+        return properties.timeToLive();
+    }
+
+    public record IssuedToken(String value, long expiresInSeconds, String jti, Instant expiresAt) {
     }
 }

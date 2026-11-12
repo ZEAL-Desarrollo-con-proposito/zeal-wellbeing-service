@@ -8,7 +8,10 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
-/** Cuenta con la que una persona inicia sesión. Solo se guarda el hash de su contraseña. */
+/**
+ * Cuenta precargada por la empresa. La persona se autentica con Microsoft (R2-17): ZEAL no guarda
+ * contraseñas, solo reconoce el correo de la cuenta.
+ */
 @Entity
 @Table(name = "user_accounts")
 public class UserAccount {
@@ -18,9 +21,6 @@ public class UserAccount {
 
     @Column(nullable = false, unique = true)
     private String email;
-
-    @Column(name = "password_hash", nullable = false)
-    private String passwordHash;
 
     @Column(name = "full_name", nullable = false)
     private String fullName;
@@ -42,10 +42,6 @@ public class UserAccount {
 
     public String getEmail() {
         return email;
-    }
-
-    public String getPasswordHash() {
-        return passwordHash;
     }
 
     public String getFullName() {

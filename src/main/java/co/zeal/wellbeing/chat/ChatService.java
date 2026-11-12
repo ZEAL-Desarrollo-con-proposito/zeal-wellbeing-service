@@ -1,5 +1,7 @@
 package co.zeal.wellbeing.chat;
 
+import io.micrometer.core.instrument.MeterRegistry;
+
 import co.zeal.wellbeing.reservation.ReservationRepository;
 import co.zeal.wellbeing.shared.error.ResourceNotFoundException;
 import co.zeal.wellbeing.shared.security.AuthenticatedUser;
@@ -26,7 +28,10 @@ public class ChatService {
     private final ReservationRepository reservations;
     private final Clock clock;
 
-    public ChatService(ChatMessageRepository messages, ReservationRepository reservations, Clock clock) {
+    private final MeterRegistry meters;
+
+    public ChatService(ChatMessageRepository messages, ReservationRepository reservations, Clock clock, MeterRegistry meters) {
+        this.meters = meters;
         this.messages = messages;
         this.reservations = reservations;
         this.clock = clock;
@@ -54,6 +59,7 @@ public class ChatService {
     @Transactional
     public ChatMessageView send(AuthenticatedUser sender, String conversationId, NewChatMessageRequest request) {
         ConversationId conversation = authorize(sender, conversationId);
+        meters.counter("zeal.business.chat.messages", "role", sender.role().name()).increment(); // R2-31, sin contenido
         ChatMessage message = messages.save(ChatMessage.write(conversation, sender.id(), sender.fullName(),
                 request.text().trim(), Instant.now(clock)));
         return ChatMessageView.of(message);
