@@ -4,6 +4,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -43,8 +44,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/auth/microsoft/callback").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .anyRequest().denyAll()) // p. ej. el POST /api/auth/login retirado: 404
+                // En esta cadena nadie está autenticado: una ruta inexistente o retirada responde 404
+                // (no 401, que haría creer al cliente que basta con iniciar sesión).
                 .exceptionHandling(exceptions -> exceptions
-                        .authenticationEntryPoint(errorHandler)
+                        .authenticationEntryPoint((request, response, denied) -> errorHandler.handle(request,
+                                response, new AccessDeniedException("ruta de autenticación inexistente")))
                         .accessDeniedHandler(errorHandler))
                 .build();
     }

@@ -30,7 +30,7 @@ class WellbeingApiSecurityIT extends IntegrationTest {
     void passwordLoginNoLongerExists() throws Exception {
         mvc.perform(post("/api/auth/login").contentType("application/json")
                         .content("{\"email\":\"david.cajamarca@nexura.co\",\"password\":\"Zeal2026*\"}"))
-                .andExpect(status().is4xxClientError());
+                .andExpect(status().isNotFound());
     }
 
     @Test
