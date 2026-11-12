@@ -1,5 +1,8 @@
 package co.zeal.wellbeing.psychologist;
 
+import co.zeal.wellbeing.shared.cache.CacheConfig;
+import org.springframework.cache.annotation.Cacheable;
+
 import co.zeal.wellbeing.shared.error.ResourceNotFoundException;
 import co.zeal.wellbeing.shared.time.DateRange;
 import co.zeal.wellbeing.slot.Slot;
@@ -34,7 +37,11 @@ public class DirectoryService {
         this.clock = clock;
     }
 
-    /** Quien tiene un bloque libre antes aparece primero; quien no tiene ninguno, al final. */
+    /**
+     * Quien tiene un bloque libre antes aparece primero; quien no tiene ninguno, al final. En caché
+     * Redis (R2-26): se invalida con cada evento de franjas ({@code zeal.wellbeing.slots}).
+     */
+    @Cacheable(cacheNames = CacheConfig.CACHE, key = "'todos'")
     public List<PsychologistView> directory() {
         Map<String, Slot> nextFree = slots.findNextFreeSlots(Instant.now(clock)).stream()
                 .collect(Collectors.toMap(Slot::getPsychologistId, Function.identity(), (first, ignored) -> first));

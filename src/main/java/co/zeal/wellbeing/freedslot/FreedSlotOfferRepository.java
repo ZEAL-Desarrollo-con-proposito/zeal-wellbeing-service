@@ -12,10 +12,13 @@ import java.util.Optional;
 
 public interface FreedSlotOfferRepository extends JpaRepository<FreedSlotOffer, String> {
 
-    /** Reto C-3: los N candidatos que pulsan "tomar" a la vez se atienden de uno en uno. */
+    /**
+     * Reto C-3: los N candidatos que pulsan "tomar" a la vez se atienden de uno en uno. R2-8: solo si la
+     * oferta se le hizo a esta persona; el filtro va en la consulta (SEG-3).
+     */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT o FROM FreedSlotOffer o WHERE o.id = :id")
-    Optional<FreedSlotOffer> findByIdForUpdate(@Param("id") String id);
+    @Query("SELECT o FROM FreedSlotOffer o WHERE o.id = :id AND :userId MEMBER OF o.recipientIds")
+    Optional<FreedSlotOffer> findOfferedToForUpdate(@Param("id") String id, @Param("userId") String userId);
 
     @Query("""
             SELECT o FROM FreedSlotOffer o

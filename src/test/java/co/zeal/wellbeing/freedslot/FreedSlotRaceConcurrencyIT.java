@@ -64,7 +64,7 @@ class FreedSlotRaceConcurrencyIT extends IntegrationTest {
         bookingService.cancel(Users.employee("c3-releaser"), cancelled.id());
 
         ArgumentCaptor<IntegrationEvent> published = ArgumentCaptor.forClass(IntegrationEvent.class);
-        verify(eventPublisher, atLeastOnce()).publish(published.capture());
+        verify(eventPublisher, atLeastOnce()).publish(published.capture(), org.mockito.ArgumentMatchers.any());
         FreedSlotOfferedEvent offered = published.getAllValues().stream()
                 .filter(FreedSlotOfferedEvent.class::isInstance)
                 .map(FreedSlotOfferedEvent.class::cast)

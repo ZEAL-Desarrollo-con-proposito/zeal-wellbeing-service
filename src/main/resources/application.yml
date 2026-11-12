@@ -1,8 +1,16 @@
 server:
   port: ${SERVER_PORT:8081}
   shutdown: graceful
+  tomcat:
+    threads:
+      max: ${TOMCAT_MAX_THREADS:200}
+  # Detrás de NGINX: la IP real del cliente sale de X-Forwarded-For (solo de proxies de redes privadas).
+  forward-headers-strategy: native
 
 spring:
+  lifecycle:
+    # Apagado ordenado: termina las peticiones en curso antes de detenerse (R2-3).
+    timeout-per-shutdown-phase: ${SHUTDOWN_TIMEOUT:20s}
   application:
     name: zeal-wellbeing-service
   datasource:
@@ -10,9 +18,16 @@ spring:
     username: ${DB_USERNAME:zeal_user}
     password: ${DB_PASSWORD:zeal_password}
     hikari:
+      # Consultas JDBC (auditoría, bloqueos) sin calificar el esquema.
+      schema: wellbeing
+      # R2-27: pool por réplica. Con 2 réplicas × 2 servicios × 20 = 80 conexiones (max_connections=100).
       maximum-pool-size: ${DB_POOL_SIZE:20}
+      minimum-idle: ${DB_POOL_MIN_IDLE:5}
+      # Una petición no espera más de esto por una conexión libre: falla rápido en vez de encolarse.
+      connection-timeout: ${DB_POOL_CONNECTION_TIMEOUT:10000}
       # Una petición nunca espera indefinidamente un bloqueo de fila (SELECT ... FOR UPDATE).
-      connection-init-sql: SET lock_timeout = '5s'
+      # Nadie espera indefinidamente un bloqueo de fila (SELECT ... FOR UPDATE de cupos y franjas).
+      connection-init-sql: SET lock_timeout = '${PG_LOCK_TIMEOUT:5s}'
   jpa:
     open-in-view: false
     hibernate:
@@ -25,26 +40,52 @@ spring:
   flyway:
     schemas: wellbeing
     default-schema: wellbeing
+    # R2-14: las migraciones corren con el usuario PROPIETARIO (SPRING_FLYWAY_USER/PASSWORD) y la app
+    # con DB_USERNAME, que la migración V*__security_audit_and_app_role crea y limita.
+    placeholders:
+      appUser: ${DB_USERNAME:zeal_user}
+      appPassword: ${DB_PASSWORD:zeal_password}
   data:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+      # Obligatoria en el despliegue multinodo (Redis en el nodo de datos); vacía en local.
+      password: ${REDIS_PASSWORD:}
   jackson:
     default-property-inclusion: always
     serialization:
       write-dates-as-timestamps: false
 
 management:
+  # R2-30: histogramas para calcular p95 por endpoint en Prometheus; etiquetas comunes por servicio y réplica.
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+    tags:
+      service: ${spring.application.name}
+      replica: ${HOSTNAME:local}
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
   endpoint:
     health:
       probes:
         enabled: true
+      # R2-3: readiness = puede atender (sus dependencias responden): NGINX/Docker la sacan de la
+      # rotación si falla. liveness = el proceso está sano; no depende de terceros para que una caída
+      # de la base no provoque reinicios en cascada.
+      group:
+        readiness:
+          include: readinessState,db,redis
+        liveness:
+          include: livenessState
 
 app:
+  # R2-26: TTL de respaldo de la caché Redis (la invalidación normal es por eventos de dominio).
+  cache:
+    ttl: ${CACHE_TTL:60s}
   time-zone: ${APP_TIME_ZONE:America/Bogota}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
@@ -53,21 +94,61 @@ app:
       # Debe coincidir en los tres servicios. En producción se inyecta siempre por variable de entorno.
       secret: ${JWT_SECRET:ZealMVP2026ArchitectureSoftwareSecretKeyMinimum256Bits!!}
       issuer: ${JWT_ISSUER:zeal}
-      time-to-live: ${JWT_TTL:24h}
+      # R2-12: access token corto; la sesión se renueva con el refresh token rotativo.
+      time-to-live: ${JWT_TTL:15m}
+  # R2-17 / R2-12: login con Microsoft (OIDC, código + PKCE, backend como cliente confidencial) y
+  # sesión de ZEAL con refresh token rotativo en cookie httpOnly.
+  auth:
+    # Adónde vuelve el navegador al terminar el login (el SPA). En producción es el mismo origen.
+    frontend-url: ${FRONTEND_URL:http://localhost:3000}
+    refresh:
+      remember-ttl: ${REFRESH_REMEMBER_TTL:30d}
+      session-ttl: ${REFRESH_SESSION_TTL:12h}
+      # Margen para dos pestañas que renuevan a la vez con la misma cookie. 0 = reutilización estricta.
+      reuse-grace: ${REFRESH_REUSE_GRACE:0s}
+    cookie:
+      # false solo en desarrollo sobre http://<ip> (localhost ya es contexto seguro para los navegadores).
+      secure: ${AUTH_COOKIE_SECURE:true}
+    oidc:
+      # Microsoft Entra ID: https://login.microsoftonline.com/<tenant-id>/v2.0 (tenant configurable).
+      # Local: mock-oauth2-server de docker-compose.yml.
+      issuer-uri: ${OIDC_ISSUER_URI:http://localhost:8090/microsoft}
+      # Solo si el navegador alcanza el proveedor por otra URL que el servidor (mock en Docker).
+      authorization-uri: ${OIDC_AUTHORIZATION_URI:}
+      client-id: ${OIDC_CLIENT_ID:zeal-local}
+      client-secret: ${OIDC_CLIENT_SECRET:zeal-local-secret}
+      redirect-uri: ${OIDC_REDIRECT_URI:http://localhost:8080/api/auth/microsoft/callback}
+      scopes: openid,profile,email
   booking:
     cancellation-notice: 24h
     freed-slot-offer-window: 5m
   room:
     opens-before-start: 10m
     ice-servers: ${ROOM_ICE_SERVERS:stun:stun.l.google.com:19302}
-    # Relé TURN opcional (p. ej. coturn): sin él, algunas redes corporativas no logran conectar el video.
+    # HU-DT-02: relé coturn permanente con credenciales temporales (use-auth-secret). TURN_SECRET es
+    # el mismo static-auth-secret de coturn; TURN_URLS p. ej. turn:turn.zeal.co:3478,turns:turn.zeal.co:443
     turn:
       urls: ${TURN_URLS:}
-      username: ${TURN_USERNAME:}
-      credential: ${TURN_CREDENTIAL:}
+      secret: ${TURN_SECRET:}
+      ttl: ${TURN_CREDENTIAL_TTL:2h}
+  # HU-DT-02 / DT-7: la cita 1:1 usa LiveKit, igual que los talleres (mismo servidor y credenciales).
+  livekit:
+    public-url: ${LIVEKIT_PUBLIC_URL:/livekit}
+    api-key: ${LIVEKIT_API_KEY:zeal-dev}
+    api-secret: ${LIVEKIT_API_SECRET:ZealLiveKitDevSecretKeyMinimum32Chars!!}
   demo-data:
     enabled: ${DEMO_DATA_ENABLED:true}
 
 logging:
+  # R2-29: una línea JSON por evento (formato Logstash, nativo de Spring Boot) con el MDC (correlationId,
+  # userId), servicio y réplica. LOG_FORMAT=ecs|gelf|logstash; en desarrollo se puede sobrescribir
+  # LOGGING_STRUCTURED_FORMAT_CONSOLE para volver al formato de texto.
+  structured:
+    format:
+      console: ${LOG_FORMAT:logstash}
+    json:
+      add:
+        service: ${spring.application.name}
+        replica: ${HOSTNAME:local}
   level:
     co.zeal: INFO

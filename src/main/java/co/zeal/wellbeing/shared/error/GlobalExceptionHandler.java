@@ -1,5 +1,7 @@
 package co.zeal.wellbeing.shared.error;
 
+import co.zeal.wellbeing.shared.audit.DeniedAccessAudit;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
@@ -27,20 +29,27 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    static final String FORBIDDEN_MESSAGE = "No tienes permiso para esta operación.";
+    static final String NOT_FOUND_MESSAGE = "El recurso solicitado no existe.";
     static final String CONTENTION_MESSAGE =
             "Hay muchas solicitudes sobre este recurso al mismo tiempo. Intenta de nuevo en un momento.";
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     private final ApiErrorFactory errors;
+    private final DeniedAccessAudit deniedAccess;
 
-    public GlobalExceptionHandler(ApiErrorFactory errors) {
+    private final MeterRegistry meters;
+
+    public GlobalExceptionHandler(ApiErrorFactory errors, DeniedAccessAudit deniedAccess, MeterRegistry meters) {
+        this.meters = meters;
         this.errors = errors;
+        this.deniedAccess = deniedAccess;
     }
 
+    /** SEG-3: el recurso no existe o es de otra persona/empresa (indistinguible a propósito). */
     @ExceptionHandler(ResourceNotFoundException.class)
     ResponseEntity<ApiError> handleNotFound(ResourceNotFoundException ex, HttpServletRequest request) {
+        deniedAccess.record(request, "recurso inexistente o ajeno");
         return respond(HttpStatus.NOT_FOUND, ex.getMessage(), request);
     }
 
@@ -61,7 +70,8 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(AccessDeniedException.class)
     ResponseEntity<ApiError> handleAccessDenied(AccessDeniedException ex, HttpServletRequest request) {
-        return respond(HttpStatus.FORBIDDEN, FORBIDDEN_MESSAGE, request);
+        deniedAccess.record(request, "rol sin acceso");
+        return respond(HttpStatus.NOT_FOUND, NOT_FOUND_MESSAGE, request); // SEG-3: 404, no 403
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -130,6 +140,8 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     ResponseEntity<ApiError> handleUnexpected(Exception ex, HttpServletRequest request) {
         log.error("Error inesperado en {} {}", request.getMethod(), request.getRequestURI(), ex);
+        // R2-30: conteo de excepciones no controladas (etiqueta acotada: el tipo, nunca el mensaje).
+        meters.counter("zeal.errors.unexpected", "exception", ex.getClass().getSimpleName()).increment();
         return respond(HttpStatus.INTERNAL_SERVER_ERROR, "Ocurrió un error inesperado. Intenta de nuevo.", request);
     }
 

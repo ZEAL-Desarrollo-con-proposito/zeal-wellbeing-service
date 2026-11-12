@@ -42,13 +42,17 @@ public class Slot {
 
     private Slot(String psychologistId, Instant startsAt, Instant endsAt) {
         this.id = Ids.next("franja");
-        this.psychologistId = Objects.requireNonNull(psychologistId);
-        this.startsAt = Objects.requireNonNull(startsAt);
-        this.endsAt = Objects.requireNonNull(endsAt);
+        this.psychologistId = psychologistId;
+        this.startsAt = startsAt;
+        this.endsAt = endsAt;
         this.status = SlotStatus.DISPONIBLE;
     }
 
+    /** Valida antes de construir: el constructor nunca lanza (un objeto a medio crear no se filtra). */
     public static Slot open(String psychologistId, Instant startsAt, Instant endsAt) {
+        Objects.requireNonNull(psychologistId);
+        Objects.requireNonNull(startsAt);
+        Objects.requireNonNull(endsAt);
         if (!endsAt.isAfter(startsAt)) {
             throw new IllegalArgumentException("La franja debe terminar después de empezar");
         }
