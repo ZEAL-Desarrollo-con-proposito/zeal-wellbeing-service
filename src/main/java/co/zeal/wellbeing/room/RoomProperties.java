@@ -64,7 +64,7 @@ public record RoomProperties(@NotNull Duration opensBeforeStart, List<String> ic
         Credentials credentialsFor(String userId, Instant now) {
             String username = now.plus(ttl).getEpochSecond() + ":" + userId;
             try {
-                Mac mac = Mac.getInstance("HmacSHA1");
+                Mac mac = Mac.getInstance("HmacSHA1"); // NOSONAR java:S4790 - lo exige el protocolo TURN REST de coturn (use-auth-secret); no protege contraseñas, solo firma credenciales efímeras
                 mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA1"));
                 String credential = Base64.getEncoder().encodeToString(mac.doFinal(username.getBytes(StandardCharsets.UTF_8)));
                 return new Credentials(username, credential);
