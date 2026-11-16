@@ -35,7 +35,7 @@ public class SecurityConfig {
     SecurityFilterChain authFilterChain(HttpSecurity http, JsonSecurityErrorHandler errorHandler) throws Exception {
         return http
                 .securityMatcher("/api/auth/**")
-                .csrf(AbstractHttpConfigurer::disable) // Cookie SameSite=Strict + CORS con orígenes explícitos
+                .csrf(AbstractHttpConfigurer::disable) // Cookie SameSite=Strict + CORS con orígenes explícitos // NOSONAR java:S4502 - API sin estado: JWT en la cabecera Authorization (no en cookie); la cookie de renovación es SameSite=Strict. No hay sesión de servidor que falsificar.
                 .cors(Customizer.withDefaults())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
@@ -58,7 +58,7 @@ public class SecurityConfig {
     SecurityFilterChain securityFilterChain(HttpSecurity http, JsonSecurityErrorHandler errorHandler)
             throws Exception {
         return http
-                .csrf(AbstractHttpConfigurer::disable)
+                .csrf(AbstractHttpConfigurer::disable) // NOSONAR java:S4502 - API sin estado: JWT en la cabecera Authorization (no en cookie); la cookie de renovación es SameSite=Strict. No hay sesión de servidor que falsificar.
                 .cors(Customizer.withDefaults())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth

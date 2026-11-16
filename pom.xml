@@ -30,6 +30,9 @@
         <sonar.coverage.jacoco.xmlReportPaths>${project.build.directory}/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
         <!-- Exclusiones de cobertura justificadas en docs/evidencias/MANT.md: arranque de Spring Boot,
              registros de propiedades y clases @Configuration sin lógica propia. -->
+        <!-- Las migraciones de Flyway son inmutables (su checksum se valida): contienen los hashes bcrypt históricos de las semillas
+             (la columna password_hash se eliminó en V6; ya no hay contraseñas) y un UPDATE de rellenado que afecta a todas las filas a propósito. -->
+        <sonar.exclusions>**/db/migration/**</sonar.exclusions>
         <sonar.coverage.exclusions>**/*Application.java,**/*Properties.java</sonar.coverage.exclusions>
     </properties>
     <dependencies>
