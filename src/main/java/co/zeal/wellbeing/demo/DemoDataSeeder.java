@@ -23,6 +23,8 @@ import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.EnumSet;
 
 /**
  * Agenda de demostración relativa al día de arranque, para que la sustentación muestre cada
@@ -132,9 +134,12 @@ public class DemoDataSeeder implements ApplicationRunner {
         log.info("[demo] Sembradas {} franjas de demostración.", accepted.size());
     }
 
+    /** Fines de semana: sin franjas de demostración (se compara por pertenencia, no con == sobre valores de tiempo). */
+    private static final Set<DayOfWeek> WEEKEND = EnumSet.of(DayOfWeek.SATURDAY, DayOfWeek.SUNDAY);
+
     private List<LocalDate> workdaysFrom(LocalDate today) {
         return today.datesUntil(today.plusDays(DAYS))
-                .filter(day -> day.getDayOfWeek() != DayOfWeek.SATURDAY && day.getDayOfWeek() != DayOfWeek.SUNDAY)
+                .filter(day -> !WEEKEND.contains(day.getDayOfWeek()))
                 .toList();
     }
 
