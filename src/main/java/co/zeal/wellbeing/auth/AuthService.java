@@ -18,6 +18,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.Locale;
+import java.util.Set;
 
 /**
  * R2-17 · Login delegado en Microsoft (OIDC, código + PKCE; ZEAL es cliente confidencial, patrón BFF).
@@ -28,6 +29,8 @@ import java.util.Locale;
 public class AuthService {
 
     private static final SecureRandom RANDOM = new SecureRandom();
+    /** Lo que devuelve Microsoft cuando la persona cancela: access_denied (OAuth) o consent_required (Entra ID, AADSTS65004, al cancelar los permisos). */
+    private static final Set<String> CANCELLED_AT_PROVIDER = Set.of("access_denied", "consent_required");
 
     private final OidcProvider provider;
     private final LoginFlowCookie flowCookie;
@@ -82,8 +85,8 @@ public class AuthService {
                 throw new OidcLoginException(OidcLoginException.FAILED, "state_invalido");
             }
             if (providerError != null) {
-                // access_denied: la persona canceló en Microsoft (o no dio consentimiento).
-                throw new OidcLoginException("access_denied".equals(providerError) ? OidcLoginException.CANCELLED
+                // La persona canceló en Microsoft (access_denied o consent_required); cualquier otro error es una falla.
+                throw new OidcLoginException(CANCELLED_AT_PROVIDER.contains(providerError) ? OidcLoginException.CANCELLED
                         : OidcLoginException.FAILED, "proveedor:" + providerError);
             }
             if (code == null || code.isBlank()) {

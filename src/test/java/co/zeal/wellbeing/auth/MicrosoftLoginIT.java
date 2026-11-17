@@ -156,16 +156,29 @@ class MicrosoftLoginIT extends IntegrationTest {
                 .getClaimAsString("nonce")).isEqualTo("n-2");
     }
 
-    @Test
-    void cancellingAtMicrosoftReturnsToLoginWithCancelled() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"access_denied", "consent_required"})
+    void cancellingAtMicrosoftReturnsToLoginWithCancelled(String providerError) throws Exception {
         Start start = start(false, "/");
         LoginFlow flow = flowCookie.decode(start.flowCookie().getValue()).orElseThrow();
 
-        MvcResult result = mvc.perform(get("/api/auth/microsoft/callback").param("error", "access_denied")
+        MvcResult result = mvc.perform(get("/api/auth/microsoft/callback").param("error", providerError)
                         .param("state", flow.state()).cookie(start.flowCookie()))
                 .andExpect(status().isFound()).andReturn();
 
         assertThat(result.getResponse().getRedirectedUrl()).isEqualTo("https://zeal.test/login?error=cancelado");
+    }
+
+    @Test
+    void otherProviderErrorsReturnToLoginWithFailure() throws Exception {
+        Start start = start(false, "/");
+        LoginFlow flow = flowCookie.decode(start.flowCookie().getValue()).orElseThrow();
+
+        MvcResult result = mvc.perform(get("/api/auth/microsoft/callback").param("error", "server_error")
+                        .param("state", flow.state()).cookie(start.flowCookie()))
+                .andExpect(status().isFound()).andReturn();
+
+        assertThat(result.getResponse().getRedirectedUrl()).isEqualTo("https://zeal.test/login?error=fallo");
     }
 
     @Test
